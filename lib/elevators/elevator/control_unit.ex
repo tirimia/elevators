@@ -50,7 +50,7 @@ defmodule Elevators.Elevator.ControlUnit do
 
   If the only remaining floors are in the other direction, it switches direction
   """
-  def move(%__MODULE__{doors_open: true} = elevator), do: %{elevator | doors_open: false}
+  def move(%__MODULE__{doors_open: true} = elevator), do: {%{elevator | doors_open: false}, nil}
 
   def move(
         %__MODULE__{
@@ -60,59 +60,74 @@ defmodule Elevators.Elevator.ControlUnit do
           external_calls: external
         } = elevator
       ) do
-    # Get all floors from both queues
+    # Get all remaining destinations
     all_remaining = MapSet.union(internal, MapSet.new(Map.keys(external)))
 
-    # Don't move if there are no floors to visit
-    if Enum.empty?(all_remaining) do
-      elevator
-    else
-      # Determine next floor based on current direction
-      next_floor = floor + if direction == :going_up, do: 1, else: -1
+    # Check if there are more destinations ahead in current direction (excluding current floor)
+    has_destinations_ahead =
+      if direction == :going_up do
+        Enum.any?(all_remaining, fn f -> f > floor end)
+      else
+        Enum.any?(all_remaining, fn f -> f < floor end)
+      end
 
-      # Check if we should stop at this floor (internal button or external call matches direction)
-      should_open_doors =
-        MapSet.member?(internal, next_floor) or Map.get(external, next_floor) == direction
+    # Check if we should stop at the CURRENT floor before moving
+    # Also stop for external calls if this is the last stop in current direction
+    should_stop_here =
+      MapSet.member?(internal, floor) or
+        Map.get(external, floor) == direction or
+        (Map.has_key?(external, floor) and not has_destinations_ahead)
 
-      # Remove this floor from both queues if we're stopping
-      new_internal =
-        if should_open_doors, do: MapSet.delete(internal, next_floor), else: internal
+    if should_stop_here do
+      # Determine which external call direction we're servicing (if any)
+      serviced_direction = Map.get(external, floor)
 
-      new_external = if should_open_doors, do: Map.delete(external, next_floor), else: external
+      # Update elevator direction to match the external call if present
+      new_direction = serviced_direction || direction
 
-      # Get all remaining floors from both queues after this move
-      remaining_after_move = MapSet.union(new_internal, MapSet.new(Map.keys(new_external)))
-
-      # Determine next direction based on remaining floors
-      next_direction =
-        cond do
-          # Continue in current direction if there are floors ahead
-          direction == :going_up and Enum.any?(remaining_after_move, &(&1 > next_floor)) ->
-            :going_up
-
-          direction == :going_down and Enum.any?(remaining_after_move, &(&1 < next_floor)) ->
-            :going_down
-
-          # Switch direction if there are floors behind
-          direction == :going_up and Enum.any?(remaining_after_move, &(&1 < next_floor)) ->
-            :going_down
-
-          direction == :going_down and Enum.any?(remaining_after_move, &(&1 > next_floor)) ->
-            :going_up
-
-          # No floors left, maintain current direction
-          true ->
-            direction
-        end
-
-      %{
+      # Open doors at current floor and clear it from queues
+      updated_elevator = %{
         elevator
-        | state: next_direction,
-          floor: next_floor,
-          doors_open: should_open_doors,
-          internal_queue: new_internal,
-          external_calls: new_external
+        | doors_open: true,
+          state: new_direction,
+          internal_queue: MapSet.delete(internal, floor),
+          external_calls: Map.delete(external, floor)
       }
+
+      # Return elevator state with metadata about what was serviced
+      {updated_elevator, serviced_direction}
+    else
+      # Don't move if there are no destinations
+      if Enum.empty?(all_remaining) do
+        {elevator, nil}
+      else
+        # Determine which direction to move based on where destinations are
+        move_direction =
+          cond do
+            # If there are floors ahead in current direction, keep going
+            direction == :going_up and Enum.any?(all_remaining, &(&1 > floor)) ->
+              :going_up
+
+            direction == :going_down and Enum.any?(all_remaining, &(&1 < floor)) ->
+              :going_down
+
+            # Otherwise switch to go towards destinations
+            Enum.any?(all_remaining, &(&1 < floor)) ->
+              :going_down
+
+            Enum.any?(all_remaining, &(&1 > floor)) ->
+              :going_up
+
+            # Shouldn't reach here, but maintain direction
+            true ->
+              direction
+          end
+
+        # Move one floor in the chosen direction
+        next_floor = floor + if move_direction == :going_up, do: 1, else: -1
+
+        {%{elevator | floor: next_floor, state: move_direction}, nil}
+      end
     end
   end
 

@@ -21,8 +21,21 @@ defmodule Elevators.Dispatcher do
   def handle_info(%{floor: floor, direction: direction}, state) do
     elevator_states = get_all_elevator_states()
 
+    # Filter out elevators already assigned to this floor with a different direction
+    available_elevators =
+      Enum.reject(elevator_states, fn {_id, control_unit} ->
+        case Map.get(control_unit.external_calls, floor) do
+          nil -> false
+          ^direction -> false  # Same direction is ok, they can share
+          _other_direction -> true  # Different direction - exclude this elevator
+        end
+      end)
+
+    # If all elevators are already assigned to this floor (shouldn't happen), use all
+    candidates = if Enum.empty?(available_elevators), do: elevator_states, else: available_elevators
+
     optimal_elevator =
-      elevator_states
+      candidates
       |> Enum.min_by(fn {_id, control_unit} ->
         ControlUnit.travel_weight(control_unit, floor)
       end)

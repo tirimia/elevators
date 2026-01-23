@@ -10,14 +10,14 @@ defmodule Elevators.Elevator.ControlUnitTest do
 
     test "requested up but going down" do
       assert ControlUnit.travel_weight(
-               %ControlUnit{floor: 2, state: {:going_down, MapSet.new([-1])}},
+               %ControlUnit{floor: 2, state: :going_down, internal_queue: MapSet.new([-1])},
                3
              ) == 7
     end
 
     test "requested down but going up" do
       assert ControlUnit.travel_weight(
-               %ControlUnit{floor: 2, state: {:going_up, MapSet.new([5])}},
+               %ControlUnit{floor: 2, state: :going_up, internal_queue: MapSet.new([5])},
                1
              ) == 7
     end
@@ -26,28 +26,43 @@ defmodule Elevators.Elevator.ControlUnitTest do
   defmodule Movement do
     use ExUnit.Case
 
-    test "idle stationary stays put" do
-      stationary = %ControlUnit{state: :stationary, floor: 1}
-      assert ControlUnit.move(stationary) == stationary
+    test "idle elevator stays put" do
+      idle = %ControlUnit{
+        state: :going_up,
+        floor: 1,
+        internal_queue: MapSet.new(),
+        external_calls: %{}
+      }
+
+      assert ControlUnit.move(idle) == {idle, nil}
     end
 
     test "up goes up even when lower floor closer" do
-      buttons_pressed = MapSet.new([-1, 1000])
-      init = %ControlUnit{floor: 0, state: {:going_up, buttons_pressed}}
-      desired = %ControlUnit{floor: 1, state: {:going_up, buttons_pressed}}
-      assert ControlUnit.move(init) == desired
+      init = %ControlUnit{floor: 0, state: :going_up, internal_queue: MapSet.new([-1, 1000])}
+      {result, _} = ControlUnit.move(init)
+      assert result.floor == 1
+      assert result.state == :going_up
     end
 
-    test "elevator stops at the last stop" do
-      init = %ControlUnit{floor: 1, state: {:going_up, MapSet.new([2])}}
-      desired = %ControlUnit{floor: 2, state: :stationary}
-      assert ControlUnit.move(init) == desired
+    test "elevator stops at requested floor" do
+      init = %ControlUnit{floor: 1, state: :going_up, internal_queue: MapSet.new([2])}
+      {result, _} = ControlUnit.move(init)
+      assert result.floor == 2
+      assert result.doors_open == true
+      assert result.internal_queue == MapSet.new()
     end
 
     test "elevator changes direction" do
-      init = %ControlUnit{floor: 1, state: {:going_up, MapSet.new([2, -1])}}
-      desired = %ControlUnit{floor: 2, state: {:going_down, MapSet.new([-1])}}
-      assert ControlUnit.move(init) == desired
+      init = %ControlUnit{floor: 1, state: :going_up, internal_queue: MapSet.new([2, -1])}
+      # First move to floor 2
+      {at_floor_2, _} = ControlUnit.move(init)
+      assert at_floor_2.floor == 2
+      assert at_floor_2.doors_open == true
+      # After doors close and next move, should go down
+      {closed_doors, _} = ControlUnit.move(at_floor_2)
+      {going_down, _} = ControlUnit.move(closed_doors)
+      assert going_down.floor == 1
+      assert going_down.state == :going_down
     end
   end
 

@@ -49,7 +49,7 @@ defmodule Elevators.Elevator do
 
   @impl GenServer
   def handle_cast(:move, state) do
-    new_control_unit = ControlUnit.move(state.control_unit)
+    {new_control_unit, serviced_direction} = ControlUnit.move(state.control_unit)
 
     direction = new_control_unit.state
 
@@ -62,11 +62,14 @@ defmodule Elevators.Elevator do
 
     # Broadcast arrival event if doors opened
     if new_control_unit.doors_open do
+      # Use the serviced direction if available (for external calls), otherwise use elevator direction
+      broadcast_direction = serviced_direction || direction
+
       Phoenix.PubSub.broadcast(Elevators.PubSub, "elevator:arrived", %{
         event: :arrived,
         elevator_id: state.id,
         floor: new_control_unit.floor,
-        direction: direction
+        direction: broadcast_direction
       })
     end
 
@@ -76,7 +79,6 @@ defmodule Elevators.Elevator do
       GenServer.cast(via_tuple(state.id), :move)
     end)
 
-    IO.puts("Elevator #{state.id} is now on floor #{new_control_unit.floor}")
     {:noreply, %{state | control_unit: new_control_unit}}
   end
 
