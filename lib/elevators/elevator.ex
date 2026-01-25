@@ -57,7 +57,9 @@ defmodule Elevators.Elevator do
       event: :moving,
       elevator_id: state.id,
       floor: new_control_unit.floor,
-      direction: direction
+      direction: direction,
+      internal_queue: new_control_unit.internal_queue,
+      external_calls: new_control_unit.external_calls
     })
 
     # Broadcast arrival event if doors opened
@@ -69,7 +71,9 @@ defmodule Elevators.Elevator do
         event: :arrived,
         elevator_id: state.id,
         floor: new_control_unit.floor,
-        direction: broadcast_direction
+        direction: broadcast_direction,
+        internal_queue: new_control_unit.internal_queue,
+        external_calls: new_control_unit.external_calls
       })
     end
 
@@ -85,6 +89,15 @@ defmodule Elevators.Elevator do
   @impl GenServer
   def handle_cast({:select_floor, floor}, state) do
     new_control_unit = ControlUnit.select_floor(state.control_unit, floor)
+
+    # Broadcast floor selection immediately for instant UI feedback
+    Phoenix.PubSub.broadcast(Elevators.PubSub, "elevator:#{state.id}", %{
+      event: :floor_selected,
+      elevator_id: state.id,
+      floor: new_control_unit.floor,
+      internal_queue: new_control_unit.internal_queue
+    })
+
     {:noreply, %{state | control_unit: new_control_unit}}
   end
 

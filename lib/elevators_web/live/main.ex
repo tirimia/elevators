@@ -8,7 +8,7 @@ defmodule ElevatorsWeb.Live.Main do
       Phoenix.PubSub.subscribe(Elevators.PubSub, "floor:call")
 
       # Subscribe to each elevator's movement
-      for elevator_id <- 1..3 do
+      for elevator_id <- get_elevator_ids() do
         Phoenix.PubSub.subscribe(Elevators.PubSub, "elevator:#{elevator_id}")
       end
     end
@@ -27,7 +27,7 @@ defmodule ElevatorsWeb.Live.Main do
     <div class="max-w-7xl mx-auto px-8 py-12">
       <h1 class="text-5xl font-bold mb-12 text-center">Elevator System</h1>
 
-      <div class="flex gap-12 justify-center">
+      <div class="flex flex-wrap gap-12 justify-center">
         <!-- Floor buttons column -->
         <div class="flex flex-col-reverse gap-3">
           <div class="font-bold text-lg mb-3 text-center">Floors</div>
@@ -65,7 +65,7 @@ defmodule ElevatorsWeb.Live.Main do
         </div>
         
     <!-- Elevators columns -->
-        <div :for={elevator_id <- 1..3} class="flex gap-6">
+        <div :for={elevator_id <- get_elevator_ids()} class="flex gap-6">
           <div class="flex flex-col-reverse gap-3">
             <div class="font-bold text-lg mb-3 text-center">Elevator {elevator_id}</div>
             <div :for={floor <- @floors} class="h-24 flex items-center justify-center">
@@ -108,14 +108,14 @@ defmodule ElevatorsWeb.Live.Main do
           <div class="flex flex-col gap-3">
             <div class="font-bold text-lg mb-3 text-center">Panel</div>
             <div class="bg-gray-800 p-4 rounded-lg shadow-lg">
-              <div class="grid grid-cols-3 gap-2">
+              <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
                 <button
                   :for={floor <- Enum.reverse(@floors)}
                   phx-click="select_floor"
                   phx-value-elevator={elevator_id}
                   phx-value-floor={floor}
                   class={[
-                    "w-12 h-12 rounded font-mono font-bold text-sm transition-all",
+                    "w-full aspect-square rounded font-mono font-bold text-sm transition-all flex items-center justify-center",
                     (elevator_has_floor_selected?(@elevators, elevator_id, floor) &&
                        "bg-yellow-400 text-gray-900 shadow-md ring-2 ring-yellow-300") ||
                       "bg-gray-700 text-gray-300 hover:bg-gray-600"
@@ -155,13 +155,110 @@ defmodule ElevatorsWeb.Live.Main do
   end
 
   @impl true
-  def handle_info(_msg, socket) do
-    # Refresh state on any elevator or floor event
+  def handle_info(
+        %{
+          event: :moving,
+          elevator_id: id,
+          floor: floor,
+          direction: direction,
+          internal_queue: queue,
+          external_calls: calls
+        },
+        socket
+      ) do
+    # Update only the specific elevator that moved
     {:noreply,
-     assign(socket,
-       elevators: get_elevator_states(),
-       floor_states: get_floor_states()
-     )}
+     update(socket, :elevators, fn elevators ->
+       case elevators[id] do
+         nil ->
+           elevators
+
+         control_unit ->
+           updated = %{
+             control_unit
+             | floor: floor,
+               state: direction,
+               doors_open: false,
+               internal_queue: queue,
+               external_calls: calls
+           }
+
+           Map.put(elevators, id, updated)
+       end
+     end)}
+  end
+
+  @impl true
+  def handle_info(%{event: :floor_selected, elevator_id: id, internal_queue: queue}, socket) do
+    # Update only the specific elevator's internal queue
+    {:noreply,
+     update(socket, :elevators, fn elevators ->
+       case elevators[id] do
+         nil ->
+           elevators
+
+         control_unit ->
+           updated = %{control_unit | internal_queue: queue}
+           Map.put(elevators, id, updated)
+       end
+     end)}
+  end
+
+  @impl true
+  def handle_info(
+        %{
+          event: :arrived,
+          elevator_id: id,
+          floor: floor,
+          direction: direction,
+          internal_queue: queue,
+          external_calls: calls
+        },
+        socket
+      ) do
+    # Update elevator to show doors open at arrival floor
+    # Also clear the floor button state for the serviced direction
+    {:noreply,
+     socket
+     |> update(:elevators, fn elevators ->
+       case elevators[id] do
+         nil ->
+           elevators
+
+         control_unit ->
+           updated = %{
+             control_unit
+             | floor: floor,
+               doors_open: true,
+               internal_queue: queue,
+               external_calls: calls
+           }
+
+           Map.put(elevators, id, updated)
+       end
+     end)
+     |> update(:floor_states, fn floor_states ->
+       update_in(floor_states, [floor], fn current_state ->
+         case direction do
+           :going_up -> %{current_state | wants_up: false}
+           :going_down -> %{current_state | wants_down: false}
+         end
+       end)
+     end)}
+  end
+
+  @impl true
+  def handle_info(%{floor: floor_num, direction: direction}, socket) do
+    # Floor button pressed - update specific floor state
+    {:noreply,
+     update(socket, :floor_states, fn floor_states ->
+       update_in(floor_states, [floor_num], fn current_state ->
+         case direction do
+           :going_up -> %{current_state | wants_up: true}
+           :going_down -> %{current_state | wants_down: true}
+         end
+       end)
+     end)}
   end
 
   defp get_floors do
@@ -171,8 +268,14 @@ defmodule ElevatorsWeb.Live.Main do
     Enum.to_list(lowest..highest)
   end
 
+  defp get_elevator_ids do
+    config = Application.fetch_env!(:elevators, Elevators.System)
+    num_elevators = Keyword.fetch!(config, :num_elevators)
+    1..num_elevators
+  end
+
   defp get_elevator_states do
-    for elevator_id <- 1..3, into: %{} do
+    for elevator_id <- get_elevator_ids(), into: %{} do
       case Registry.lookup(Elevators.Registry, {:elevator, elevator_id}) do
         [{pid, _}] ->
           state = GenServer.call(pid, :get_state)

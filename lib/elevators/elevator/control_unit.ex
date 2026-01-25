@@ -10,10 +10,12 @@ defmodule Elevators.Elevator.ControlUnit do
             internal_queue: MapSet.new(),
             external_calls: %{}
 
+  @type direction :: :going_up | :going_down
+
   @type t :: %__MODULE__{
           state: :going_up | :going_down,
           internal_queue: MapSet.t(integer()),
-          external_calls: %{integer() => :going_up | :going_down},
+          external_calls: %{integer() => direction()},
           floor: integer(),
           doors_open: boolean()
         }
@@ -45,6 +47,8 @@ defmodule Elevators.Elevator.ControlUnit do
   end
 
   @spec move(t()) :: t()
+  @spec move(Elevators.Elevator.ControlUnit.t()) ::
+          {Elevators.Elevator.ControlUnit.t(), direction()}
   @doc """
   Will continue on its path as long as there are floors to reach
 
