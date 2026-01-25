@@ -30,14 +30,14 @@
   --color-base-200: oklch(25.26% 0.014 253.1);
   --color-base-300: oklch(20.15% 0.012 254.09);
   --color-base-content: oklch(97.807% 0.029 256.847);
-  --color-primary: oklch(58% 0.233 277.117);
-  --color-primary-content: oklch(96% 0.018 272.314);
-  --color-secondary: oklch(58% 0.233 277.117);
-  --color-secondary-content: oklch(96% 0.018 272.314);
-  --color-accent: oklch(60% 0.25 292.717);
-  --color-accent-content: oklch(96% 0.016 293.756);
-  --color-neutral: oklch(37% 0.044 257.287);
-  --color-neutral-content: oklch(98% 0.003 247.858);
+  --color-primary: oklch(73% 0.145 130);
+  --color-primary-content: oklch(98% 0.01 130);
+  --color-secondary: oklch(73% 0.145 130);
+  --color-secondary-content: oklch(98% 0.01 130);
+  --color-accent: oklch(28% 0.08 255);
+  --color-accent-content: oklch(98% 0.01 255);
+  --color-neutral: oklch(80% 0.01 250);
+  --color-neutral-content: oklch(25% 0.02 250);
   --color-info: oklch(58% 0.158 241.966);
   --color-info-content: oklch(97% 0.013 236.62);
   --color-success: oklch(60% 0.118 184.704);
@@ -100,6 +100,9 @@
 @custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
 
 /* Make LiveView wrapper divs transparent for layout */
-[data-phx-session], [data-phx-teleported-src] { display: contents }
+[data-phx-session],
+[data-phx-teleported-src] {
+  display: contents
+}
 
 /* This file is for your main application CSS */
